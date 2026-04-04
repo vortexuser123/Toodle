@@ -1,0 +1,18 @@
+{
+  "name": "Toodle App",
+  "short_name": "Toodle",
+  "description": "Connect, Learn, and Grow.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

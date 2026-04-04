@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Toodle - Dashboard</title>
+    <!-- PWA Setup (App Installation) -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="icon-512.png">
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Toodle App is ready for installation!'))
+                .catch(err => console.log('Service Worker failed: ', err));
+            });
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root { --primary: #6366f1; --bg-color: #0f172a; --card-bg: #1e293b; --text-main: #f8fafc; --text-muted: #94a3b8; --warning: #f59e0b; --success: #10b981; --danger: #ef4444; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); overflow-x: hidden; padding-bottom: 90px; -webkit-tap-highlight-color: transparent;}
+
+        /* HEADER */
+        header { background: var(--card-bg); padding: 20px; border-bottom-left-radius: 30px; border-bottom-right-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid #334155;}
+        .profile-area { display: flex; align-items: center; gap: 15px; cursor: pointer; }
+        .profile-pic { width: 50px; height: 50px; border-radius: 50%; background-color: #334155; background-size: cover; background-position: center; border: 2px solid var(--primary); box-shadow: 0 4px 10px rgba(99,102,241,0.2);}
+        .profile-info h2 { font-size: 1rem; font-weight: 700; color: var(--text-main); }
+        .profile-info p { font-size: 0.75rem; color: var(--text-muted); }
+        
+        .header-actions { display: flex; gap: 10px; }
+        .icon-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-color); border: none; color: var(--primary); font-size: 1.1rem; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: 0.3s; }
+        .icon-btn.active { background: var(--primary); color: white; transform: scale(1.1);}
+        .icon-btn.logout { color: var(--danger); }
+
+        /* DASHBOARD GRID */
+        .dashboard-container { padding: 20px 15px; }
+        .dash-title { margin-bottom: 15px; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center; font-weight: 700; color: var(--text-main); }
+        .edit-hint { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; grid-auto-rows: 150px; }
+        .widget { background: var(--card-bg); border-radius: 25px; padding: 20px; border: 1px solid #334155; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; position: relative; overflow: hidden;}
+        .widget:active { transform: scale(0.96); }
+        .widget-wide { grid-column: span 2; }
+        .widget-tall { grid-row: span 2; }
+        
+        .w-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; color: var(--text-muted); font-size: 0.85rem; font-weight: 600;}
+        .w-icon { color: var(--primary); font-size: 1.2rem; padding: 8px; background: rgba(99, 102, 241, 0.1); border-radius: 12px;}
+        .w-content { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; }
+        .w-value { font-size: 1.8rem; font-weight: 700; color: var(--text-main); }
+        .w-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: flex; align-items: center; gap: 5px;}
+        
+        .progress-track { width: 100%; height: 8px; background: var(--bg-color); border-radius: 4px; margin-top: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary), #818cf8); width: 0%; transition: width 1s cubic-bezier(0.2, 0.8, 0.2, 1); border-radius: 4px;}
+        
+        .edit-mode .widget { animation: jiggle 0.3s infinite alternate; cursor: grab; border: 2px dashed var(--primary); pointer-events: none; }
+        @keyframes jiggle { 0% { transform: rotate(-1deg); } 100% { transform: rotate(1deg); } }
+
+        /* FOCUS TIMER WIDGET */
+        .timer-controls { display: flex; flex-direction: column; gap: 10px; margin-top: 5px; }
+        .timer-row { display: flex; gap: 8px; }
+        .timer-controls select, .timer-controls input { padding: 8px 12px; border: 1px solid #334155; background: var(--bg-dark); color: white; border-radius: 12px; font-size: 0.85rem; flex-grow: 1; outline:none; font-family: 'Inter';}
+        .timer-controls button { background: var(--success); color: white; border: none; border-radius: 12px; padding: 8px 20px; font-weight: 600; cursor: pointer; transition: 0.2s;}
+        .timer-controls button:active { transform: scale(0.95); }
+        #countdown-display { font-size: 2.5rem; font-weight: 700; color: var(--primary); text-align: center; display: none; margin-top: 10px; letter-spacing: 2px; font-variant-numeric: tabular-nums;}
+
+        /* TO-DO LIST WIDGET */
+        .todo-container { flex-grow: 1; overflow-y: auto; margin-top: 5px; padding-right: 5px;}
+        .todo-item { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; margin-bottom: 12px; background: var(--bg-color); padding: 10px 15px; border-radius: 12px; color: white;}
+        .todo-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor:pointer;}
+        .todo-item.done span { text-decoration: line-through; color: var(--text-muted); }
+        .todo-input-row { display: flex; gap: 8px; margin-top: auto; padding-top: 10px; }
+        .todo-input-row input { flex-grow: 1; border: 1px solid #334155; outline: none; background: var(--bg-dark); color: white; padding: 10px 15px; border-radius: 12px; font-size: 0.8rem;}
+        .todo-input-row button { background: var(--primary); color: white; border: none; border-radius: 12px; width: 40px; display: flex; justify-content: center; align-items: center; cursor: pointer;}
+
+        /* BOTTOM NAV */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 75px; background: var(--card-bg); border-top: 1px solid #334155; display: flex; justify-content: space-around; align-items: center; z-index: 100; border-top-left-radius: 20px; border-top-right-radius: 20px;}
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--text-muted); text-decoration: none; font-size: 0.75rem; transition: 0.2s;}
+        .nav-item i { font-size: 1.4rem; }
+        .nav-item.active { color: var(--primary); transform: translateY(-3px);}
+
+        /* MODALS */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(3px); z-index: 1000; display: none; justify-content: center; align-items: flex-end; opacity: 0; transition: opacity 0.3s ease; }
+        .modal-content { background: var(--card-bg); width: 100%; max-width: 500px; border-radius: 35px 35px 0 0; padding: 30px 25px; transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); max-height: 85vh; overflow-y: auto; position: relative; border-top: 1px solid #334155;}
+        
+        .modal-handle { width: 50px; height: 5px; background: #475569; border-radius: 5px; margin: 0 auto 25px auto; }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        .modal-overlay.active .modal-content { transform: translateY(0); }
+        
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .modal-header h2 { font-size: 1.4rem; color: var(--text-main); font-weight: 700;}
+        .close-modal { background: var(--bg-color); border: none; width: 35px; height: 35px; border-radius: 50%; font-size: 1.2rem; color: var(--text-main); cursor: pointer; display: flex; justify-content: center; align-items: center;}
+
+        /* Profile Inputs */
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 500;}
+        .input-group input { width: 100%; padding: 15px; border: 1px solid #334155; background: var(--bg-dark); color: white; border-radius: 15px; font-size: 1rem; outline: none; transition: 0.3s;}
+        .input-group input:focus { border-color: var(--primary); }
+        .btn-save { width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 15px; font-size: 1.05rem; font-weight: 600; cursor: pointer; margin-top: 10px;}
+        #img-upload { display: none; }
+        .upload-btn { display: block; text-align: center; color: var(--primary); font-weight: 600; margin-bottom: 25px; cursor: pointer; background: var(--bg-color); padding: 10px; border-radius: 15px; }
+        
+        /* Report & Leaderboard Lists */
+        .list-ui { list-style: none; }
+        .list-ui li { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: var(--bg-color); border-radius: 15px; margin-bottom: 10px; font-weight: 500; color: white;}
+        .rank-badge { background: var(--warning); color: var(--bg-dark); padding: 5px 12px; border-radius: 10px; font-weight: 800; font-size: 0.9rem;}
+        .rank-me { background: linear-gradient(45deg, var(--primary), #818cf8); color: white; border-radius: 15px; padding: 15px; margin-bottom: 20px; text-align: center; font-weight: 700; font-size: 1.1rem; box-shadow: 0 5px 15px rgba(99,102,241,0.3);}
+        
+        .subject-time { font-size: 0.9rem; color: var(--primary); font-weight: 700;}
+
+        /* Schedule Form */
+        .schedule-form { display: flex; gap: 10px; margin-bottom: 25px; }
+        .schedule-form select, .schedule-form input { padding: 12px; border: 1px solid #334155; background: var(--bg-dark); color: white; border-radius: 12px; outline:none; flex-grow:1;}
+        .schedule-form button { background: var(--primary); color: white; border: none; border-radius: 12px; padding: 0 20px; font-weight:600; cursor: pointer;}
+        
+        #save-loader { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- ALARM AUDIO -->
+    <audio id="alarm-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
+    <!-- HEADER -->
+    <header>
+        <div class="profile-area" onclick="openModal('profile-modal')">
+            <div class="profile-pic" id="display-pic"></div>
+            <div class="profile-info">
+                <h2 id="display-name">...</h2>
+                <p id="display-username">@...</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="edit-toggle" onclick="toggleEditMode()"><i class="fa-solid fa-arrows-up-down-left-right"></i></button>
+            <button class="icon-btn logout-btn" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i></button>
+        </div>
+    </header>
+
+    <!-- DASHBOARD GRID -->
+    <div class="dashboard-container">
+        <h3 style="margin-bottom: 10px; font-size: 1rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-main); font-weight: 700;">
+            Your Overview
+            <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 500;" id="edit-hint"><i class="fa-solid fa-arrows-up-down"></i> Reorder</span>
+        </h3>
+        
+        <div class="grid" id="sortable-grid">
+            
+            <div class="widget" data-id="1" onclick="if(!isEditing) openModal('report-modal')">
+                <div class="w-header"><span>Total Time</span><i class="fa-solid fa-chart-line w-icon"></i></div>
+                <div class="w-content">
+                    <div class="w-value" id="total-time-val">0h 0m</div>
+                    <div class="w-sub" style="color: var(--primary);">View Report <i class="fa-solid fa-chevron-right" style="font-size:0.6rem;"></i></div>
+                </div>
+            </div>
+
+            <div class="widget" data-id="2">
+                <div class="w-header"><span>Current Grade</span><i class="fa-solid fa-graduation-cap w-icon"></i></div>
+                <div class="w-content">
+                    <div class="w-value" id="grade-val" style="color: var(--success);">C</div>
+                    <div class="w-sub">Based on effort</div>
+                </div>
+            </div>
+
+            <div class="widget widget-wide" data-id="3" style="cursor: default;">
+                <div class="w-header"><span>Focus Timer</span><i class="fa-solid fa-stopwatch w-icon" style="color: var(--danger); background: rgba(239, 68, 68, 0.1);"></i></div>
+                
+                <div class="timer-controls" id="timer-setup">
+                    <div class="timer-row">
+                        <select id="timer-subject">
+                            <option value="Math">Mathematics</option>
+                            <option value="Science">Science</option>
+                            <option value="English">English</option>
+                            <option value="History">History</option>
+                        </select>
+                        <input type="number" id="timer-mins" placeholder="Mins" min="1" max="120" value="25">
+                        <button onclick="startFocusTimer()">Start</button>
+                    </div>
+                </div>
+                
+                <div id="countdown-display">25:00</div>
+                <div id="timer-active-sub" style="display:none; text-align:center; font-size:0.8rem; color:var(--text-muted); margin-top:5px; font-weight:500;">Studying <span id="active-subj-text" style="color:var(--primary);">Math</span></div>
+            </div>
+
+            <div class="widget" data-id="4" onclick="if(!isEditing) openModal('leaderboard-modal')">
+                <div class="w-header"><span>Global Rank</span><i class="fa-solid fa-globe w-icon" style="color: var(--warning); background:rgba(245, 158, 11, 0.1);"></i></div>
+                <div class="w-content">
+                    <div class="w-value" id="rank-val" style="color: var(--warning);">--</div>
+                    <div class="w-sub">Accuracy: <span id="accuracy-val" style="font-weight:600; color:white;">0%</span></div>
+                </div>
+            </div>
+
+            <div class="widget" data-id="5" onclick="if(!isEditing) openModal('schedule-modal')">
+                <div class="w-header"><span>Schedule</span><i class="fa-solid fa-calendar-check w-icon" style="color: var(--primary);"></i></div>
+                <div class="w-content">
+                    <div class="w-value" style="font-size:1.2rem;" id="next-class-val">No classes</div>
+                    <div class="w-sub">Tap to manage</div>
+                </div>
+            </div>
+
+            <div class="widget widget-wide widget-tall" data-id="6" style="cursor: default;">
+                <div class="w-header"><span>Assignments</span><i class="fa-solid fa-list-check w-icon" style="color: var(--success); background:rgba(16, 185, 129, 0.1);"></i></div>
+                <div class="todo-container" id="todo-list"></div>
+                <div class="todo-input-row">
+                    <input type="text" id="new-task-input" placeholder="Add new task..." onkeypress="if(event.key==='Enter') addTask()">
+                    <button onclick="addTask()"><i class="fa-solid fa-plus"></i></button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <nav class="bottom-nav">
+        <a href="dashboard.html" class="nav-item active"><i class="fa-solid fa-chart-pie"></i><span>Dash</span></a>
+        <a href="ai.html" class="nav-item"><i class="fa-solid fa-robot"></i><span>AI Tutor</span></a>
+        <a href="chat.html" class="nav-item"><i class="fa-solid fa-message"></i><span>Chats</span></a>
+    </nav>
+
+    <!-- MODAL 1: PROFILE (BOTTOM SHEET) -->
+    <div class="modal-overlay" id="profile-modal" onclick="if(event.target===this) closeModal('profile-modal')">
+        <div class="modal-content">
+            <div class="modal-handle"></div>
+            <div class="modal-header"><h2>Edit Profile</h2><button class="close-modal" onclick="closeModal('profile-modal')"><i class="fa-solid fa-times"></i></button></div>
+            <label for="img-upload" class="upload-btn"><i class="fa-solid fa-camera"></i> Change Photo</label>
+            <input type="file" id="img-upload" accept="image/*">
+            <div class="input-group"><label>Full Name</label><input type="text" id="input-name"></div>
+            <div class="input-group"><label>Username</label><input type="text" id="input-username" disabled></div>
+            <button class="btn-save" id="save-btn" onclick="saveProfile()"><span id="save-text">Save Changes</span><i id="save-loader" class="fa-solid fa-circle-notch fa-spin"></i></button>
+        </div>
+    </div>
+
+    <!-- MODAL 2: WEEKLY REPORT (BOTTOM SHEET) -->
+    <div class="modal-overlay" id="report-modal" onclick="if(event.target===this) closeModal('report-modal')">
+        <div class="modal-content">
+            <div class="modal-handle"></div>
+            <div class="modal-header"><h2>Weekly Report 📊</h2><button class="close-modal" onclick="closeModal('report-modal')"><i class="fa-solid fa-times"></i></button></div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">Time spent per subject</p>
+            <ul class="list-ui" id="report-list"></ul>
+        </div>
+    </div>
+
+    <!-- MODAL 3: LEADERBOARD (BOTTOM SHEET) -->
+    <div class="modal-overlay" id="leaderboard-modal" onclick="if(event.target===this) closeModal('leaderboard-modal')">
+        <div class="modal-content">
+            <div class="modal-handle"></div>
+            <div class="modal-header"><h2>Global Rank Board 🌍</h2><button class="close-modal" onclick="closeModal('leaderboard-modal')"><i class="fa-solid fa-times"></i></button></div>
+            <div class="rank-me" id="my-rank-banner">Your Rank: Loading...</div>
+            <ul class="list-ui" id="leaderboard-list">
+                <div style="text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> Fetching ranks...</div>
+            </ul>
+        </div>
+    </div>
+
+    <!-- MODAL 4: SCHEDULE (BOTTOM SHEET) -->
+    <div class="modal-overlay" id="schedule-modal" onclick="if(event.target===this) closeModal('schedule-modal')">
+        <div class="modal-content">
+            <div class="modal-handle"></div>
+            <div class="modal-header"><h2>My Schedule 📅</h2><button class="close-modal" onclick="closeModal('schedule-modal')"><i class="fa-solid fa-times"></i></button></div>
+            <div class="schedule-form">
+                <select id="sch-subject"><option>Math</option><option>Science</option><option>English</option><option>History</option></select>
+                <input type="time" id="sch-time" required>
+                <button onclick="addSchedule()"><i class="fa-solid fa-plus"></i></button>
+            </div>
+            <ul class="list-ui" id="schedule-list"></ul>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. FIREBASE CONFIGURATION (⚠️ PASTE YOURS HERE)
+        // ==========================================
+        const keyPart1 = "AIzaSy"; 
+        const keyPart2 = "DJ-GP3GcWtchJ5FnNctbky9uAL1efnhq4"; 
+
+        const firebaseConfig = {
+            apiKey: keyPart1 + keyPart2,
+  authDomain: "toodle-c838f.firebaseapp.com",
+  projectId: "toodle-c838f",
+  storageBucket: "toodle-c838f.firebasestorage.app",
+  messagingSenderId: "169067597185",
+  appId: "1:169067597185:web:f5ff4fd82ffb224dd62c80",
+  measurementId: "G-NDSEPCGWTN"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let currentUser = null;
+        let userDataCache = {}; 
+        let totalStudySeconds = 0;
+        let timerInterval;
+
+        if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+
+        // ==========================================
+        // 2. AUTH & LOAD DATA (Instant Display)
+        // ==========================================
+        auth.onAuthStateChanged((user) => {
+            if (user) { 
+                currentUser = user;
+                
+                // 1. Instant Cache Load
+                const cachedData = localStorage.getItem('toodle_dash_' + user.uid);
+                if(cachedData) {
+                    userDataCache = JSON.parse(cachedData);
+                    updateUI(userDataCache);
+                }
+
+                // 2. Fetch fresh data in background
+                db.collection("users").doc(user.uid).onSnapshot((doc) => {
+                    if (doc.exists) {
+                        userDataCache = doc.data();
+                        localStorage.setItem('toodle_dash_' + user.uid, JSON.stringify(userDataCache));
+                        updateUI(userDataCache);
+                        
+                        if(!window.scheduleInterval) window.scheduleInterval = setInterval(checkScheduleNotifications, 10000);
+                    }
+                });
+            } 
+            else { 
+                window.location.href = "index.html"; 
+            }
+        });
+
+        function updateUI(data) {
+            document.getElementById('display-name').innerText = data.fullName || "Student";
+            document.getElementById('display-username').innerText = "@" + (data.username || "student");
+            const picUrl = data.profilePic || 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png';
+            document.getElementById('display-pic').style.backgroundImage = `url('${picUrl}')`;
+
+            if(data.widgetOrder) applyWidgetOrder(data.widgetOrder);
+            renderTodoList(data.todos || []);
+            renderScheduleList(data.schedule || []);
+            
+            const studyStats = data.subjectStats || {};
+            let totalMins = 0; for(let subj in studyStats) totalMins += studyStats[subj];
+            
+            const hrs = Math.floor(totalMins / 60); const mins = totalMins % 60;
+            document.getElementById('total-time-val').innerText = `${hrs}h ${mins}m`;
+
+            let grade = 'C'; let accuracy = 40;
+            if(totalMins >= 600) { grade = 'A+'; accuracy = 99;} 
+            else if(totalMins >= 300) { grade = 'A'; accuracy = 85;}
+            else if(totalMins >= 120) { grade = 'B'; accuracy = 65;}
+            
+            document.getElementById('grade-val').innerText = grade;
+            document.getElementById('accuracy-val').innerText = accuracy + "%";
+            document.querySelector('.progress-fill').style.width = accuracy + "%";
+
+            const globalScore = totalMins + accuracy;
+            if(data.globalScore !== globalScore && currentUser) { 
+                db.collection("users").doc(currentUser.uid).update({ globalScore: globalScore }).catch(()=>{}); 
+            }
+
+            // --- FIXED: AUTO-CALCULATE AND SHOW RANK ON WIDGET ---
+            if(currentUser) {
+                db.collection("users").where("globalScore", ">", globalScore).get().then(snap => {
+                    const myRank = snap.size + 1; // Count people with higher score + 1
+                    document.getElementById('rank-val').innerText = `#${myRank}`;
+                }).catch(e => console.log("Rank fetch error", e));
+            }
+
+            const schedule = data.schedule || [];
+            if(schedule.length > 0) { document.getElementById('next-class-val').innerText = `${schedule[0].time} - ${schedule[0].subject}`; } 
+            else { document.getElementById('next-class-val').innerText = "No schedule"; }
+        }
+
+        function logout() { 
+            if(currentUser) db.collection("users").doc(currentUser.uid).update({ studyTimeSecs: totalStudySeconds }).catch(()=>{}); 
+            auth.signOut().then(() => window.location.href = "index.html"); 
+        }
+
+        // ==========================================
+        // 3. EDIT PROFILE
+        // ==========================================
+        let compressedImageBase64 = null;
+        function openModal(id) { 
+            if(isEditing) return;
+            document.getElementById(id).classList.add('active'); 
+            if(id === 'profile-modal') { document.getElementById('input-name').value = document.getElementById('display-name').innerText; document.getElementById('input-username').value = document.getElementById('display-username').innerText.replace('@', ''); }
+            if(id === 'report-modal') generateReport();
+            if(id === 'leaderboard-modal') fetchLeaderboard();
+        }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); compressedImageBase64 = null;}
+
+        document.getElementById('img-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_SIZE = 250; let w = img.width, h = img.height;
+                    if (w > h) { if (w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; } } else { if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; } }
+                    canvas.width = w; canvas.height = h; canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    compressedImageBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                    document.getElementById('display-pic').style.backgroundImage = `url('${compressedImageBase64}')`;
+                }; img.src = event.target.result;
+            }; reader.readAsDataURL(file);
+        });
+
+        async function saveProfile() {
+            const newName = document.getElementById('input-name').value;
+            document.getElementById('save-text').style.display = 'none'; document.getElementById('save-loader').style.display = 'inline-block';
+            try {
+                let updateData = { fullName: newName };
+                if (compressedImageBase64) updateData.profilePic = compressedImageBase64;
+                await db.collection("users").doc(currentUser.uid).update(updateData);
+                closeModal('profile-modal');
+            } catch (error) { alert("Error: " + error.message); }
+            document.getElementById('save-text').style.display = 'inline'; document.getElementById('save-loader').style.display = 'none';
+        }
+
+        // ==========================================
+        // 4. DRAG & DROP DASHBOARD
+        // ==========================================
+        const grid = document.getElementById('sortable-grid'); const editBtn = document.getElementById('edit-toggle'); let isEditing = false;
+        const sortable = new Sortable(grid, {
+            animation: 200, disabled: true, delay: 150, delayOnTouchOnly: true,
+            filter: ".todo-input-row, input, select, button", preventOnFilter: false,
+            onEnd: function () { const newOrder = Array.from(grid.children).map(w => w.getAttribute('data-id')); db.collection("users").doc(currentUser.uid).update({ widgetOrder: newOrder }); }
+        });
+
+        function toggleEditMode() {
+            isEditing = !isEditing;
+            if(isEditing) {
+                grid.classList.add('edit-mode'); editBtn.classList.add('active'); editBtn.innerHTML = '<i class="fa-solid fa-check"></i>'; document.getElementById('edit-hint').style.color = "var(--primary)"; document.getElementById('edit-hint').innerHTML = "<i class='fa-solid fa-hand-pointer'></i> Drag to move"; sortable.option("disabled", false);
+            } else {
+                grid.classList.remove('edit-mode'); editBtn.classList.remove('active'); editBtn.innerHTML = '<i class="fa-solid fa-arrows-up-down-left-right"></i>'; document.getElementById('edit-hint').style.color = "var(--text-muted)"; document.getElementById('edit-hint').innerHTML = "<i class='fa-solid fa-arrows-up-down'></i> Reorder"; sortable.option("disabled", true);
+            }
+        }
+        function applyWidgetOrder(orderArray) { orderArray.forEach(id => { const widget = document.querySelector(`.widget[data-id="${id}"]`); if(widget) grid.appendChild(widget); }); }
+
+        // ==========================================
+        // 5. FOCUS TIMER (SAVES TO CLOUD)
+        // ==========================================
+        let countdownInterval;
+        function startFocusTimer() {
+            if(isEditing) return;
+            const subj = document.getElementById('timer-subject').value;
+            const mins = parseInt(document.getElementById('timer-mins').value);
+            if(isNaN(mins) || mins < 1) return;
+
+            let remainingSecs = mins * 60;
+            document.getElementById('timer-setup').style.display = 'none';
+            const display = document.getElementById('countdown-display');
+            const activeSubj = document.getElementById('timer-active-sub');
+            display.style.display = 'block'; activeSubj.style.display = 'block';
+            document.getElementById('active-subj-text').innerText = subj;
+
+            countdownInterval = setInterval(async () => {
+                remainingSecs--;
+                let m = Math.floor(remainingSecs / 60).toString().padStart(2, '0'); let s = (remainingSecs % 60).toString().padStart(2, '0');
+                display.innerText = `${m}:${s}`;
+
+                if(remainingSecs <= 0) {
+                    clearInterval(countdownInterval);
+                    document.getElementById('alarm-sound').play().catch(()=>{}); 
+                    alert(`Time's up! Great job studying ${subj} for ${mins} minutes!`);
+                    
+                    display.style.display = 'none'; activeSubj.style.display = 'none'; document.getElementById('timer-setup').style.display = 'flex';
+
+                    let currentStats = userDataCache.subjectStats || { Math:0, Science:0, English:0, History:0 };
+                    currentStats[subj] = (currentStats[subj] || 0) + mins;
+                    await db.collection("users").doc(currentUser.uid).update({ subjectStats: currentStats });
+                }
+            }, 1000);
+        }
+
+        // ==========================================
+        // 6. REPORTS & LEADERBOARD
+        // ==========================================
+        function generateReport() {
+            const stats = userDataCache.subjectStats || {}; const list = document.getElementById('report-list'); list.innerHTML = "";
+            let maxMins = 1; for(let s in stats) if(stats[s] > maxMins) maxMins = stats[s];
+            for(let subj in stats) {
+                let mins = stats[subj]; let width = (mins / maxMins) * 100;
+                list.innerHTML += `<li style="flex-direction:column; align-items:flex-start; gap:5px;"><div style="display:flex; justify-content:space-between; width:100%;"><span>${subj}</span><span class="subject-time">${mins}m</span></div><div class="progress-track" style="margin-top:0;"><div class="progress-fill" style="width:${width}%;"></div></div></li>`;
+            }
+            if(list.innerHTML === "") list.innerHTML = "<li style='justify-content:center; color:#888; background:transparent;'>No study data yet! Use the Focus Timer.</li>";
+        }
+
+        async function fetchLeaderboard() {
+            const list = document.getElementById('leaderboard-list');
+            try {
+                const snapshot = await db.collection("users").orderBy("globalScore", "desc").limit(50).get();
+                list.innerHTML = ""; let rank = 1; let myRank = "Unranked";
+                snapshot.forEach(doc => {
+                    const data = doc.data(); const isMe = doc.id === currentUser.uid; if(isMe) myRank = rank;
+                    list.innerHTML += `<li style="${isMe ? 'background:var(--bg-hover); border:1px solid var(--primary);' : ''}"><div style="display:flex; align-items:center; gap:10px;"><div class="rank-badge">#${rank}</div><span>${isMe ? '<strong>You</strong>' : data.username}</span></div><span style="font-weight:700; color:var(--primary);">${data.globalScore || 0} pts</span></li>`;
+                    rank++;
+                });
+                document.getElementById('my-rank-banner').innerText = `Your Global Rank: #${myRank}`;
+            } catch(e) { list.innerHTML = "<li>Error loading ranks.</li>"; }
+        }
+
+        // ==========================================
+        // 7. SCHEDULES & TODOS
+        // ==========================================
+        function renderTodoList(todos) {
+            const container = document.getElementById('todo-list'); container.innerHTML = "";
+            if(todos.length === 0) { container.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.8rem; margin-top:20px;"><i class="fa-solid fa-mug-hot" style="font-size:2rem; margin-bottom:10px;"></i><br>All caught up! 🎉</div>'; return; }
+            todos.forEach((task, index) => {
+                const isChecked = task.done ? "checked" : ""; const doneClass = task.done ? "done" : "";
+                container.innerHTML += `<div class="todo-item ${doneClass}"><input type="checkbox" ${isChecked} onchange="toggleTask(${index})"><span>${task.text}</span><i class="fa-solid fa-trash" style="margin-left:auto; color:var(--danger); cursor:pointer; padding:5px;" onclick="deleteTask(${index})"></i></div>`;
+            });
+        }
+        async function addTask() { if(isEditing) return; const input = document.getElementById('new-task-input'); const text = input.value.trim(); if(!text) return; let t = userDataCache.todos || []; t.push({ text: text, done: false }); input.value = ""; renderTodoList(t); await db.collection("users").doc(currentUser.uid).update({ todos: t }); }
+        async function toggleTask(index) { let t = userDataCache.todos; t[index].done = !t[index].done; renderTodoList(t); await db.collection("users").doc(currentUser.uid).update({ todos: t }); }
+        async function deleteTask(index) { let t = userDataCache.todos; t.splice(index, 1); renderTodoList(t); await db.collection("users").doc(currentUser.uid).update({ todos: t }); }
+
+        function renderScheduleList(schedule) {
+            const list = document.getElementById('schedule-list'); list.innerHTML = "";
+            if(schedule.length === 0) { list.innerHTML = "<li style='color:#888; font-size:0.8rem; justify-content:center; background:transparent;'>No schedule set</li>"; return; }
+            schedule.forEach((item, idx) => { list.innerHTML += `<li><span><i class="fa-regular fa-clock" style="color:var(--primary); margin-right:5px;"></i> ${item.time} - <strong>${item.subject}</strong></span><i class="fa-solid fa-trash" style="color:var(--danger); cursor:pointer; padding:5px;" onclick="deleteSchedule(${idx})"></i></li>`; });
+        }
+        async function addSchedule() {
+            const subj = document.getElementById('sch-subject').value; const time = document.getElementById('sch-time').value; if(!time) return;
+            let sch = userDataCache.schedule || []; sch.push({ subject: subj, time: time }); sch.sort((a,b) => a.time.localeCompare(b.time));
+            renderScheduleList(sch); await db.collection("users").doc(currentUser.uid).update({ schedule: sch });
+        }
+        async function deleteSchedule(idx) { let sch = userDataCache.schedule || []; sch.splice(idx, 1); renderScheduleList(sch); await db.collection("users").doc(currentUser.uid).update({ schedule: sch }); }
+
+        let notifiedToday = {}; 
+        function checkScheduleNotifications() {
+            if(!userDataCache || !userDataCache.schedule) return;
+            const now = new Date(); const dateStr = now.toDateString(); const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+            userDataCache.schedule.forEach(item => {
+                const eventKey = `${item.time}_${item.subject}`;
+                if(item.time === timeStr && notifiedToday[eventKey] !== dateStr) {
+                    notifiedToday[eventKey] = dateStr; 
+                    document.getElementById('alarm-sound').play().catch(()=>{});
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        new Notification(`📚 Time for ${item.subject}!`, { body: `Your scheduled session starts now.`, icon: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png" });
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Toodle - Welcome</title>
+    <!-- PWA Setup (App Installation) -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="icon-512.png">
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Toodle App is ready for installation!'))
+                .catch(err => console.log('Service Worker failed: ', err));
+            });
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root { --primary: #6366f1; --primary-dark: #4f46e5; --bg: #0f172a; --surface: #1e293b; --text-main: #f8fafc; --text-muted: #94a3b8; --error: #ef4444; --input-bg: #0f172a; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+        body { background: var(--bg); color: var(--text-main); min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; overflow: hidden; }
+        .auth-container { background: var(--surface); width: 100%; max-width: 420px; padding: 35px 30px; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); position: relative; overflow: hidden; border: 1px solid #334155; }
+        .header { text-align: center; margin-bottom: 25px; }
+        .header h1 { color: var(--primary); font-size: 2.2rem; font-weight: 700; letter-spacing: -1px;}
+        .header p { color: var(--text-muted); font-size: 0.95rem; margin-top: 5px;}
+        .toggle-box { display: flex; background: var(--input-bg); border-radius: 30px; position: relative; margin-bottom: 30px; padding: 5px; border: 1px solid #334155; }
+        .toggle-btn { flex: 1; padding: 12px; border: none; background: transparent; font-weight: 600; color: var(--text-muted); cursor: pointer; z-index: 2; transition: color 0.3s; font-size: 0.95rem; }
+        .toggle-btn.active { color: white; }
+        .toggle-bg { position: absolute; top: 5px; left: 5px; width: calc(50% - 5px); height: calc(100% - 10px); background: var(--primary); border-radius: 25px; transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); z-index: 1; box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3); }
+        .form-area { position: relative; }
+        .form-wrapper { transition: opacity 0.3s ease, transform 0.3s ease; }
+        .form-wrapper.hidden { opacity: 0; pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; transform: translateX(20px); display: none;}
+        .form-wrapper.active { opacity: 1; pointer-events: auto; position: relative; transform: translateX(0); display: block;}
+        .input-group { margin-bottom: 18px; position: relative; }
+        .input-group i { position: absolute; left: 15px; top: 15px; color: var(--text-muted); font-size: 1.1rem; }
+        .input-group input, .input-group select { width: 100%; padding: 14px 15px 14px 45px; background: var(--input-bg); border: 1px solid #334155; border-radius: 12px; font-size: 0.95rem; color: var(--text-main); outline: none; transition: border-color 0.3s; appearance: none; }
+        .input-group input:focus, .input-group select:focus { border-color: var(--primary); }
+        .input-group input::placeholder { color: #475569; }
+        .submit-btn { width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px; }
+        .submit-btn:active { transform: scale(0.98); background: var(--primary-dark); }
+        .submit-btn:disabled { background: #475569; cursor: not-allowed; transform: none; color: #94a3b8;}
+        .auth-links { text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--primary); cursor: pointer; }
+        .auth-links:hover { text-decoration: underline; }
+        .error-msg { color: var(--error); font-size: 0.85rem; text-align: center; margin-top: 15px; min-height: 20px; font-weight: 500; opacity: 0; transition: opacity 0.3s; }
+        .error-msg.show { opacity: 1; }
+        .loader { display: none; font-size: 1.2rem; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="auth-container">
+        <div class="header">
+            <h1>Toodle</h1>
+            <p>Connect. Learn. Grow.</p>
+        </div>
+
+        <div class="toggle-box">
+            <div class="toggle-bg" id="toggle-bg"></div>
+            <button class="toggle-btn active" id="btn-login" onclick="switchTab('login')">Log In</button>
+            <button class="toggle-btn" id="btn-signup" onclick="switchTab('signup')">Sign Up</button>
+        </div>
+
+        <div class="form-area">
+            
+            <!-- LOGIN FORM -->
+            <div id="login-form" class="form-wrapper active">
+                <div class="input-group"><i class="fa-solid fa-envelope"></i><input type="email" id="log-email" placeholder="Email Address"></div>
+                <div class="input-group"><i class="fa-solid fa-lock"></i><input type="password" id="log-pass" placeholder="Password" onkeypress="if(event.key==='Enter') loginUser()"></div>
+                <button class="submit-btn" id="log-submit" onclick="loginUser()"><span class="btn-text">Sign In</span><i class="fa-solid fa-circle-notch loader" id="log-loader"></i></button>
+                <div class="auth-links" onclick="forgotPassword()">Forgot Password?</div>
+                <div class="error-msg" id="log-error"></div>
+            </div>
+
+            <!-- SIGNUP FORM -->
+            <div id="signup-form" class="form-wrapper hidden">
+                <div class="input-group"><i class="fa-solid fa-id-badge"></i><input type="text" id="sign-name" placeholder="Full Name"></div>
+                <div class="input-group"><i class="fa-solid fa-at"></i><input type="text" id="sign-username" placeholder="Unique Username" oninput="this.value = this.value.toLowerCase().replace(/[^a-z0-9_]/g, '')"></div>
+                <div class="input-group">
+                    <i class="fa-solid fa-globe"></i>
+                    <select id="sign-region">
+                        <option value="Global">Select Region</option>
+                        <option value="Asia">Asia</option>
+                        <option value="Europe">Europe</option>
+                        <option value="Americas">Americas</option>
+                        <option value="Africa">Africa</option>
+                    </select>
+                </div>
+                <div class="input-group"><i class="fa-solid fa-envelope"></i><input type="email" id="sign-email" placeholder="Email Address"></div>
+                <div class="input-group"><i class="fa-solid fa-lock"></i><input type="password" id="sign-pass" placeholder="Password (Min 6 chars)" onkeypress="if(event.key==='Enter') signupUser()"></div>
+                <button class="submit-btn" id="sign-submit" onclick="signupUser()"><span class="btn-text">Create Account</span><i class="fa-solid fa-circle-notch loader" id="sign-loader"></i></button>
+                <div class="error-msg" id="sign-error"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. FIREBASE CONFIGURATION
+        // ==========================================
+        const keyPart1 = "AIzaSy"; 
+        const keyPart2 = "DJ-GP3GcWtchJ5FnNctbky9uAL1efnhq4"; 
+
+        const firebaseConfig = {
+            apiKey: keyPart1 + keyPart2,
+  authDomain: "toodle-c838f.firebaseapp.com",
+  projectId: "toodle-c838f",
+  storageBucket: "toodle-c838f.firebasestorage.app",
+  messagingSenderId: "169067597185",
+  appId: "1:169067597185:web:f5ff4fd82ffb224dd62c80",
+  measurementId: "G-NDSEPCGWTN"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ⚠️ CRITICAL FIX: Prevent Auto-Redirect during Sign Up
+        let isSigningUp = false;
+
+        auth.onAuthStateChanged((user) => {
+            if (user && !isSigningUp) { 
+                window.location.href = "dashboard.html"; 
+            }
+        });
+
+        // ==========================================
+        // 2. UI TOGGLES
+        // ==========================================
+        function switchTab(tab) {
+            const bg = document.getElementById('toggle-bg');
+            const loginForm = document.getElementById('login-form');
+            const signupForm = document.getElementById('signup-form');
+            const btnLog = document.getElementById('btn-login');
+            const btnSign = document.getElementById('btn-signup');
+
+            showError('log-error', ''); showError('sign-error', '');
+
+            if(tab === 'login') {
+                bg.style.transform = 'translateX(0)';
+                btnLog.classList.add('active'); btnSign.classList.remove('active');
+                signupForm.classList.remove('active'); signupForm.classList.add('hidden');
+                setTimeout(() => { loginForm.classList.remove('hidden'); loginForm.classList.add('active'); }, 100);
+            } else {
+                bg.style.transform = 'translateX(100%)';
+                btnSign.classList.add('active'); btnLog.classList.remove('active');
+                loginForm.classList.remove('active'); loginForm.classList.add('hidden');
+                setTimeout(() => { signupForm.classList.remove('hidden'); signupForm.classList.add('active'); }, 100);
+            }
+        }
+
+        function setLoading(btnId, loaderId, isLoading) {
+            const btn = document.getElementById(btnId);
+            const text = btn.querySelector('.btn-text');
+            const loader = document.getElementById(loaderId);
+            if(isLoading) { btn.disabled = true; text.style.display = 'none'; loader.style.display = 'block'; } 
+            else { btn.disabled = false; text.style.display = 'block'; loader.style.display = 'none'; }
+        }
+
+        function showError(elementId, message) {
+            const errDiv = document.getElementById(elementId);
+            errDiv.innerHTML = message ? `<i class="fa-solid fa-circle-exclamation"></i> ${message}` : "";
+            if(message) errDiv.classList.add('show'); else errDiv.classList.remove('show');
+        }
+
+        // ==========================================
+        // 3. SIGNUP LOGIC (PERFECTED)
+        // ==========================================
+        async function signupUser() {
+            const name = document.getElementById('sign-name').value.trim();
+            const username = document.getElementById('sign-username').value.trim();
+            const region = document.getElementById('sign-region').value;
+            const email = document.getElementById('sign-email').value.trim();
+            const pass = document.getElementById('sign-pass').value;
+
+            if(!name || !username || !email || !pass || region === "Global") {
+                showError('sign-error', "Please fill all fields and select a region."); return;
+            }
+            if(pass.length < 6) {
+                showError('sign-error', "Password must be at least 6 characters."); return;
+            }
+
+            setLoading('sign-submit', 'sign-loader', true);
+            showError('sign-error', '');
+            
+            isSigningUp = true; // Tell auth listener to STOP! Don't redirect yet!
+
+            try {
+                // 1. Check if Username exists
+                const usernameDoc = await db.collection("usernames").doc(username).get();
+                if(usernameDoc.exists) {
+                    showError('sign-error', "Username is already taken! Try another.");
+                    setLoading('sign-submit', 'sign-loader', false);
+                    isSigningUp = false;
+                    return; 
+                }
+
+                // 2. Create Auth Account
+                const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
+                const uid = userCredential.user.uid;
+
+                // 3. Save EVERYTHING to Database at the same time
+                await Promise.all([
+                    db.collection("usernames").doc(username).set({ uid: uid }),
+                    db.collection("users").doc(uid).set({
+                        fullName: name,
+                        username: username,
+                        region: region,
+                        email: email,
+                        joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        profilePic: "",
+                        globalScore: 0,
+                        subjectStats: { Math:0, Science:0, English:0, History:0 },
+                        todos: [],
+                        schedule: [],
+                        likes: [],
+                        widgetOrder: ["1", "2", "3", "4", "5", "6"] 
+                    })
+                ]);
+
+                // 4. Manual Redirect AFTER database is successfully written
+                window.location.href = "dashboard.html";
+
+            } catch (error) {
+                isSigningUp = false; // Reset flag so they can try again
+                console.error(error);
+                let readableError = "An error occurred during signup.";
+                if(error.code === 'auth/email-already-in-use') readableError = "Email is already registered. Please log in.";
+                if(error.code === 'auth/invalid-email') readableError = "Invalid email format.";
+                showError('sign-error', readableError);
+            }
+            setLoading('sign-submit', 'sign-loader', false);
+        }
+
+        // ==========================================
+        // 4. LOGIN LOGIC
+        // ==========================================
+        async function loginUser() {
+            const email = document.getElementById('log-email').value.trim();
+            const pass = document.getElementById('log-pass').value;
+            if(!email || !pass) { showError('log-error', "Enter email and password"); return; }
+
+            setLoading('log-submit', 'log-loader', true);
+            showError('log-error', '');
+
+            try { 
+                await auth.signInWithEmailAndPassword(email, pass); 
+                // Will auto redirect because isSigningUp is false
+            } catch (error) {
+                showError('log-error', "Invalid email or password.");
+                setLoading('log-submit', 'log-loader', false);
+            }
+        }
+
+        async function forgotPassword() {
+            const email = document.getElementById('log-email').value.trim();
+            if(!email) { showError('log-error', "Type your email above first to reset password."); return; }
+            try { 
+                await auth.sendPasswordResetEmail(email); 
+                showError('log-error', "Password reset link sent to your email!"); 
+                document.getElementById('log-error').style.color = "var(--primary)"; 
+            } catch (e) { showError('log-error', "Error sending reset email."); }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Toodle - AI Tutor</title>
+    <!-- PWA Setup (App Installation) -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="icon-512.png">
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Toodle App is ready for installation!'))
+                .catch(err => console.log('Service Worker failed: ', err));
+            });
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --msg-out: #6366f1;
+            --msg-in: #334155;
+            --danger: #ef4444;
+            --ai-accent: #10b981; 
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        
+        /* 
+         * STRUCTURAL FIX: 
+         * We use a strict flex-column layout so the header, chat, and input area never overlap.
+         */
+        body { 
+            background-color: var(--bg-color); color: var(--text-main); 
+            height: 100vh; width: 100vw; 
+            display: flex; flex-direction: column; 
+            overflow: hidden; overscroll-behavior-y: none; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* --- HEADER --- */
+        header {
+            background: var(--card-bg); color: white; padding: 15px 20px;
+            display: flex; justify-content: space-between; align-items: center; z-index: 500;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); flex-shrink: 0; border-bottom: 1px solid #334155;
+        }
+        .back-btn { font-size: 1.2rem; color: white; text-decoration: none; display: flex; align-items: center; gap: 10px; font-weight: 600;}
+        .ai-status { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--ai-accent); font-weight: 600;}
+        .pulse { width: 8px; height: 8px; background: var(--ai-accent); border-radius: 50%; animation: pulseAnim 1.5s infinite; }
+        @keyframes pulseAnim { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+
+        /* --- CHAT CONTAINER (PERFECTED SCROLLING) --- */
+       #chat-container {
+            flex-grow: 1; padding: 20px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 15px; 
+            /* Pushes the chat bubbles above the input bar */
+            margin-bottom: 190px; 
+            background-image: url("https://www.transparenttextures.com/patterns/cubes.png");
+        }
+
+        /* Message Bubbles */
+        .message { max-width: 85%; padding: 12px 16px; border-radius: 15px; font-size: 0.95rem; line-height: 1.5; word-wrap: break-word; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; flex-direction: column;}
+        .message strong { font-weight: 700; color: #fff;}
+        .message br { margin-bottom: 5px; }
+        
+        .msg-ai { background: var(--msg-in); color: var(--text-main); align-self: flex-start; border-top-left-radius: 4px; border: 1px solid #475569;}
+        .msg-ai strong { color: #a5b4fc; } 
+        
+        .msg-user { background: var(--msg-out); color: white; align-self: flex-end; border-top-right-radius: 4px; }
+        
+        .msg-image { width: 100%; border-radius: 8px; margin-bottom: 8px; max-height: 250px; object-fit: cover; border: 1px solid #334155;}
+
+        /* Typing Indicator */
+        .typing { display: none; align-self: flex-start; background: transparent; padding: 10px; margin-bottom: 10px;}
+        .typing span { display: inline-block; width: 6px; height: 6px; background: var(--primary); border-radius: 50%; margin: 0 2px; animation: typeBounce 1.4s infinite ease-in-out both; }
+        .typing span:nth-child(1) { animation-delay: -0.32s; } .typing span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typeBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+        /* --- INPUT AREA (FIXED TO BOTTOM NAV) --- */
+        .chat-input-area {
+            position: fixed; 
+            bottom: 75px; /* Sits exactly on top of the 75px bottom nav bar */
+            left: 0; width: 100%; 
+            background: var(--card-bg); display: flex; flex-direction: column; z-index: 100;
+            border-top: 1px solid #334155; 
+        }
+
+        #attachment-preview { display: none; position: relative; width: 60px; height: 60px; margin: 10px 10px 0 10px; }
+        #attachment-img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 2px solid var(--primary); }
+        #remove-attachment { position: absolute; top: -5px; right: -5px; background: var(--danger); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 10px; cursor: pointer; }
+
+        .input-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; position: relative; padding: 10px; }
+        
+        .attach-btn { background: transparent; border: none; color: var(--text-muted); font-size: 1.5rem; padding: 5px; cursor: pointer; transition: transform 0.3s; flex-shrink: 0; z-index: 120; }
+        .attach-btn.active { transform: rotate(45deg); color: var(--primary); }
+
+        .attachment-menu { 
+            display: flex; gap: 15px; align-items: center; justify-content: flex-start;
+            position: absolute; left: 45px; bottom: 12px; height: 45px; 
+            background: var(--card-bg); border-radius: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            padding: 0; width: 0; opacity: 0; overflow: hidden; 
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+            z-index: 110; pointer-events: none; border: 1px solid #334155;
+        }
+        .attachment-menu.open { width: 140px; padding: 0 15px; opacity: 1; pointer-events: auto; }
+        .attach-item { display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--primary); font-size: 1.4rem; transition: transform 0.2s; }
+        .attach-item:active { transform: scale(0.9); }
+
+        .input-wrapper { flex-grow: 1; background: var(--bg-dark); border: 1px solid #334155; border-radius: 20px; display: flex; align-items: center; padding: 5px 15px; min-height: 45px; width: 50%; }
+        #msg-input { width: 100%; background: transparent; color: white; border: none; outline: none; font-size: 0.95rem; font-family: 'Inter'; }
+
+        .send-btn { background: var(--primary); color: white; border: none; width: 45px; height: 45px; min-width: 45px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; cursor: pointer; flex-shrink: 0; transition: transform 0.1s; }
+        .send-btn:active { transform: scale(0.9); }
+
+        /* --- BOTTOM NAV (FIXED) --- */
+        .bottom-nav { 
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 75px; 
+            background: var(--card-bg); border-top: 1px solid #334155; 
+            display: flex; justify-content: space-around; align-items: center; 
+            z-index: 200; padding-bottom: env(safe-area-inset-bottom);
+            border-top-left-radius: 20px; border-top-right-radius: 20px;
+        }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--text-muted); text-decoration: none; font-size: 0.75rem; transition: 0.2s;}
+        .nav-item i { font-size: 1.4rem; }
+        .nav-item.active { color: var(--primary); transform: translateY(-3px);}
+
+        /* CAMERA MODAL */
+        #camera-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 1000; display: none; flex-direction: column; }
+        .cam-header { display: flex; justify-content: space-between; padding: 20px; color: white; font-size: 1.5rem; z-index: 10; position: absolute; width: 100%; top: 0;}
+        .cam-header i { padding: 10px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); cursor: pointer;}
+        #camera-video { width: 100%; height: 100%; object-fit: cover; }
+        .cam-controls { position: absolute; bottom: 0; width: 100%; padding: 40px; display: flex; justify-content: center; align-items: center; background: linear-gradient(transparent, rgba(0,0,0,0.8)); }
+        .snap-btn { width: 70px; height: 70px; border-radius: 50%; border: 4px solid white; background: transparent; cursor: pointer; position: relative; }
+        .snap-btn::after { content:''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 54px; height: 54px; background: white; border-radius: 50%; }
+
+        #gallery-upload, #hidden-canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <a href="dashboard.html" class="back-btn"><i class="fa-solid fa-arrow-left"></i> AskAI</a>
+        <div class="ai-status"><div class="pulse"></div> Online</div>
+    </header>
+
+    <!-- CHAT AREA -->
+    <div id="chat-container" onclick="closeAttachmentMenu()">
+        <div class="typing" id="typing-indicator"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- INPUT AREA -->
+    <div class="chat-input-area">
+        <div id="attachment-preview">
+            <img id="attachment-img" src="">
+            <div id="remove-attachment" onclick="removeAttachment()"><i class="fa-solid fa-times"></i></div>
+        </div>
+
+        <div class="input-row">
+            <button class="attach-btn" id="attach-toggle" onclick="toggleAttachmentMenu()"><i class="fa-solid fa-plus"></i></button>
+            
+            <div class="attachment-menu" id="attach-menu">
+                <div class="attach-item" onclick="openCameraModal()"><i class="fa-solid fa-camera"></i></div>
+                <div class="attach-item" onclick="document.getElementById('gallery-upload').click()">
+                    <i class="fa-solid fa-image"></i>
+                    <input type="file" id="gallery-upload" accept="image/*" onchange="handleGalleryUpload(event)">
+                </div>
+            </div>
+
+            <div class="input-wrapper">
+                <input type="text" id="msg-input" placeholder="Ask me anything..." onkeypress="if(event.key==='Enter') sendToGemini()" onfocus="closeAttachmentMenu()">
+            </div>
+            
+            <button class="send-btn" onclick="sendToGemini()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <nav class="bottom-nav">
+        <a href="dashboard.html" class="nav-item"><i class="fa-solid fa-chart-pie"></i><span>Dash</span></a>
+        <a href="ai.html" class="nav-item active"><i class="fa-solid fa-robot"></i><span>AI Tutor</span></a>
+        <a href="chat.html" class="nav-item"><i class="fa-solid fa-message"></i><span>Chats</span></a>
+    </nav>
+
+    <!-- CAMERA MODAL -->
+    <div id="camera-modal">
+        <div id="live-cam-container" style="display:flex; flex-direction:column; height:100%; width:100%; position:relative;">
+            <div class="cam-header">
+                <i class="fa-solid fa-times" onclick="closeCameraModal()"></i>
+                <i class="fa-solid fa-camera-rotate" onclick="switchCamera()"></i>
+            </div>
+            <video id="camera-video" autoplay playsinline></video>
+            <div class="cam-controls"><div class="snap-btn" onclick="capturePhoto()"></div></div>
+        </div>
+    </div>
+
+    <canvas id="hidden-canvas"></canvas>
+
+    <script>
+        // ==========================================
+        // 1. FIREBASE SETUP
+        // ==========================================
+        // ⚠️ PASTE YOUR FIREBASE KEY PIECES HERE ⚠️
+        const keyPart1 = "AIzaSy"; 
+        const keyPart2 = "DJ-GP3GcWtchJ5FnNctbky9uAL1efnhq4"; 
+
+        const firebaseConfig = {
+            apiKey: keyPart1 + keyPart2,
+  authDomain: "toodle-c838f.firebaseapp.com",
+  projectId: "toodle-c838f",
+  storageBucket: "toodle-c838f.firebasestorage.app",
+  messagingSenderId: "169067597185",
+  appId: "1:169067597185:web:f5ff4fd82ffb224dd62c80",
+  measurementId: "G-NDSEPCGWTN"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        let currentUser = null;
+        let aiRoomId = null;
+
+        auth.onAuthStateChanged((user) => {
+            if (!user) { window.location.href = "index.html"; } 
+            else {
+                currentUser = user;
+                aiRoomId = "ai_room_" + user.uid;
+                loadAIChats();
+            }
+        });
+
+        // ==========================================
+        // 2. CHAT UI LOGIC & PERSISTENCE
+        // ==========================================
+        const chatContainer = document.getElementById('chat-container');
+        const chatInput = document.getElementById('msg-input');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const attachMenu = document.getElementById('attach-menu');
+        const attachToggle = document.getElementById('attach-toggle');
+        
+        let attachedImageBase64 = null;
+
+        function toggleAttachmentMenu() {
+            if(attachMenu.classList.contains('open')) closeAttachmentMenu(); 
+            else { attachMenu.classList.add('open'); attachToggle.classList.add('active'); }
+        }
+        function closeAttachmentMenu() { attachMenu.classList.remove('open'); attachToggle.classList.remove('active'); }
+
+        function formatMarkdown(text) {
+            return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                       .replace(/\*(.*?)\*/g, '<br>• $1')
+                       .replace(/\n/g, '<br>');
+        }
+
+        // --- LOAD PAST CHATS (DUPLICATE FIX) ---
+        let unsubAI = null;
+        function loadAIChats() {
+            if(unsubAI) unsubAI(); // Stop old listener
+            
+            // Clear screen completely before loading
+            const oldMsgs = document.querySelectorAll('.message');
+            oldMsgs.forEach(m => m.remove());
+
+            unsubAI = db.collection('chats').doc(aiRoomId).collection('messages').orderBy('timestamp', 'asc')
+                .onSnapshot((snapshot) => {
+                    
+                    if(snapshot.empty && document.querySelectorAll('.message').length === 0) {
+                        appendMessageUI('ai', "Hi! 👋 I am your Toodle AI Tutor. You can ask me any question or tap the camera icon to scan a math problem!");
+                        return;
+                    }
+
+                    // Only process NEW messages to prevent duplicate rendering
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === "added") {
+                            const data = change.doc.data();
+                            appendMessageUI(data.sender, data.text, data.image);
+                        }
+                    });
+                });
+        }
+
+        // Draws the Message HTML
+        function appendMessageUI(sender, text, imgBase64 = null) {
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message', sender === 'user' ? 'msg-user' : 'msg-ai');
+            
+            let content = '';
+            if (imgBase64) content += `<img src="${imgBase64}" class="msg-image">`;
+            if (text) content += formatMarkdown(text);
+            
+            msgDiv.innerHTML = content;
+            
+            // ALWAYS insert before the typing indicator
+            chatContainer.insertBefore(msgDiv, typingIndicator);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() { 
+            // Wait a few milliseconds for images to render before scrolling
+            setTimeout(() => { chatContainer.scrollTop = chatContainer.scrollHeight; }, 100);
+        }
+
+        // Saves message to Firebase
+        async function saveMessageToDB(sender, text, imgBase64 = null) {
+            try {
+                await db.collection('chats').doc(aiRoomId).collection('messages').add({
+                    sender: sender,
+                    text: text,
+                    image: imgBase64,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) { console.error("DB Save Error:", e); }
+        }
+
+        // ==========================================
+        // 3. GEMINI AI LOGIC (MULTIMODAL)
+        // ==========================================
+        // ⚠️ PASTE YOUR GEMINI API KEY PIECES HERE ⚠️
+        const ENCODED_GEMINI_KEY = "QUl6YVN5QXRLejEzTlB0VnIyUktzVEtHck9XWTd3R2c5OWx5VmRF"; // Paste the base64 string here!
+
+// The browser decodes it back to normal instantly
+const GEMINI_API_KEY = atob(ENCODED_GEMINI_KEY); 
+
+        async function sendToGemini() {
+            const text = chatInput.value.trim();
+            const imgToSend = attachedImageBase64;
+            
+            if (!text && !imgToSend) return;
+
+            // 1. Clean UI & Show Loading (Firebase Snapshot handles the User Message UI)
+            await saveMessageToDB('user', text, imgToSend);
+            
+            chatInput.value = '';
+            removeAttachment();
+            closeAttachmentMenu();
+            
+            // Show typing dots and scroll down
+            typingIndicator.style.display = 'block';
+            scrollToBottom();
+
+            // 2. Construct Gemini Payload
+            let parts = [];
+            if (text) parts.push({ "text": text });
+            else parts.push({ "text": "Please solve or explain what is in this image step by step clearly." });
+
+            if (imgToSend) {
+                const base64Data = imgToSend.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+                parts.push({ "inline_data": { "mime_type": "image/jpeg", "data": base64Data } });
+            }
+
+            const requestBody = { "contents": [{ "role": "user", "parts": parts }] };
+
+            // 3. Call Google AI
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+                const data = await response.json();
+                
+                typingIndicator.style.display = 'none';
+
+                if (data.error) {
+                    console.error("Gemini Error:", data.error);
+                    await saveMessageToDB('ai', `API Error: Please check your API Key limits.`);
+                } else if (data.candidates && data.candidates.length > 0) {
+                    await saveMessageToDB('ai', data.candidates[0].content.parts[0].text);
+                } else {
+                    await saveMessageToDB('ai', "I received an empty response. Please try again.");
+                }
+            } catch (error) {
+                typingIndicator.style.display = 'none';
+                await saveMessageToDB('ai', "Network error. Please check your internet connection.");
+            }
+        }
+
+        // ==========================================
+        // 4. CAMERA & GALLERY LOGIC
+        // ==========================================
+        let currentFacingMode = 'environment'; 
+        let camStream;
+
+        function openCameraModal() {
+            closeAttachmentMenu();
+            document.getElementById('camera-modal').style.display = "flex";
+            startCamStream();
+        }
+
+        function closeCameraModal() { document.getElementById('camera-modal').style.display = "none"; if(camStream) camStream.getTracks().forEach(t => t.stop()); }
+        function switchCamera() { if(camStream) camStream.getTracks().forEach(t => t.stop()); currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user'; startCamStream(); }
+
+        function startCamStream() {
+            const video = document.getElementById('camera-video');
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } })
+            .then(stream => { camStream = stream; video.srcObject = stream; })
+            .catch(err => { alert("Camera error."); closeCameraModal(); });
+        }
+
+        function capturePhoto() {
+            const video = document.getElementById('camera-video');
+            const canvas = document.getElementById('hidden-canvas');
+            const MAX_WIDTH = 800; // Compress heavily for AI API limits
+            let w = video.videoWidth, h = video.videoHeight;
+            if(w > MAX_WIDTH) { h = Math.floor(h * (MAX_WIDTH/w)); w = MAX_WIDTH; }
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            
+            if(currentFacingMode === 'user') { ctx.translate(w, 0); ctx.scale(-1, 1); } 
+            ctx.drawImage(video, 0, 0, w, h);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            
+            attachedImageBase64 = canvas.toDataURL('image/jpeg', 0.5);
+            
+            // Show preview near input box
+            document.getElementById('attachment-img').src = attachedImageBase64;
+            document.getElementById('attachment-preview').style.display = 'block';
+            
+            closeCameraModal();
+        }
+
+        function handleGalleryUpload(e) {
+            const file = e.target.files[0]; if(!file) return;
+            closeAttachmentMenu();
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const img = new Image();
+                img.onload = async function() {
+                    const canvas = document.getElementById('hidden-canvas');
+                    const MAX_WIDTH = 800; let w = img.width, h = img.height;
+                    if(w > MAX_WIDTH) { h = Math.floor(h * (MAX_WIDTH/w)); w = MAX_WIDTH; }
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                    
+                    attachedImageBase64 = canvas.toDataURL('image/jpeg', 0.5);
+                    document.getElementById('attachment-img').src = attachedImageBase64;
+                    document.getElementById('attachment-preview').style.display = 'block';
+                }
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+        }
+
+        function removeAttachment() {
+            attachedImageBase64 = null;
+            document.getElementById('attachment-preview').style.display = 'none';
+            document.getElementById('attachment-img').src = '';
+        }
+
+    </script>
+</body>
+</html>
